@@ -30,6 +30,7 @@ int main(int argc, char *argv[])
 	float mean;
 	float u[N][N];
 	float w[N][N];
+	float * floatarrbuffer = (float *)malloc((sizeof(float)*(N-2)));
     // fork();
 	int count=0;
 	mean = 0.0;
@@ -111,34 +112,56 @@ int main(int argc, char *argv[])
 					float temp;
 					for(i=start;i<=end;i++){
 						for(j=1;j<N-1;j++){
-							temp=u[i][j];
-							write(fdmasterpipes[2*tid+1][1],&temp,sizeof(temp));
+							floatarrbuffer[j-1]=u[i][j];
 						}
+						write(fdmasterpipes[2*tid+1][1],floatarrbuffer,(sizeof(float))*(N-2));
 					}
 					break;				
 				}
 
 
+				// //get u values from neighbours
+				// if(tid>0){
+				// 	//receive from upper
+				// 	float temp;
+				// 	int temppipe = tid-1;
+				// 	int rownum =1+ tid*((N-2)/P) -1;
+				// 	for(i=1;i<N-1;i++){
+				// 		read(fdpipes[2*(temppipe)][0], &temp, sizeof(temp));
+				// 		u[rownum][i] = temp;
+				// 	}
+
+				// }
 				//get u values from neighbours
 				if(tid>0){
 					//receive from upper
 					float temp;
 					int temppipe = tid-1;
 					int rownum =1+ tid*((N-2)/P) -1;
+					read(fdpipes[2*(temppipe)][0], floatarrbuffer, sizeof(float)*(N-2));
 					for(i=1;i<N-1;i++){
-						read(fdpipes[2*(temppipe)][0], &temp, sizeof(temp));
-						u[rownum][i] = temp;
+						u[rownum][i] = floatarrbuffer[i-1];
 					}
 
 				}
+				// if(tid<P-1){
+				// 	//receive from down
+				// 	float temp;
+				// 	int temppipe = tid;
+				// 	int rownum= 1 + (tid+1)*((N-2)/P);
+				// 	for(i=1;i<N-1;i++){
+				// 		read(fdpipes[2*(temppipe)+1][0], &temp, sizeof(temp));
+				// 		u[rownum][i] = temp;
+				// 	}
+				// }
 				if(tid<P-1){
 					//receive from down
 					float temp;
 					int temppipe = tid;
 					int rownum= 1 + (tid+1)*((N-2)/P);
+					read(fdpipes[2*(temppipe)+1][0], floatarrbuffer, (sizeof(float))*(N-2));
 					for(i=1;i<N-1;i++){
-						read(fdpipes[2*(temppipe)+1][0], &temp, sizeof(temp));
-						u[rownum][i] = temp;
+						u[rownum][i] = floatarrbuffer[i-1];
 					}
 				}
 
@@ -170,6 +193,20 @@ int main(int argc, char *argv[])
 			
 			//send u values to neighbours
 			// printf("%d count %d computation is done\n",tid,count);
+			// if(tid>0){
+			// 	//send to upper
+			// 	float temp;
+			// 	int temppipe = tid-1;
+			// 	int rownum =1+ tid*((N-2)/P);
+			// 	// printf("%d sending row %d to upper neighbours\n",tid,rownum);
+
+			// 	for(i=1;i<N-1;i++){
+			// 		temp = u[rownum][i];
+			// 		write(fdpipes[2*(temppipe)+1][1], &temp, sizeof(temp));
+			// 	}
+
+			// 	// printf("%d sent row %d to upper neighbours\n",tid,rownum);
+			// }
 			if(tid>0){
 				//send to upper
 				float temp;
@@ -178,12 +215,25 @@ int main(int argc, char *argv[])
 				// printf("%d sending row %d to upper neighbours\n",tid,rownum);
 
 				for(i=1;i<N-1;i++){
-					temp = u[rownum][i];
-					write(fdpipes[2*(temppipe)+1][1], &temp, sizeof(temp));
+					floatarrbuffer[i-1] = u[rownum][i];
 				}
+				write(fdpipes[2*(temppipe)+1][1], floatarrbuffer, sizeof(float)*(N-2));
 
 				// printf("%d sent row %d to upper neighbours\n",tid,rownum);
 			}
+			// if(tid<P-1){
+			// 	//send to down
+			// 	float temp;
+			// 	int temppipe = tid;
+			// 	int rownum= 1 + (tid+1)*((N-2)/P) -1;
+			// 	// printf("%d sending row %d to down neighbours\n",tid,rownum);
+
+			// 	for(i=1;i<N-1;i++){
+			// 		temp = u[rownum][i];
+			// 		write(fdpipes[2*(temppipe)][1], &temp, sizeof(temp));
+			// 	}
+			// 	// printf("%d sent row %d to down neighbours\n",tid,rownum);
+			// }
 			if(tid<P-1){
 				//send to down
 				float temp;
@@ -192,9 +242,9 @@ int main(int argc, char *argv[])
 				// printf("%d sending row %d to down neighbours\n",tid,rownum);
 
 				for(i=1;i<N-1;i++){
-					temp = u[rownum][i];
-					write(fdpipes[2*(temppipe)][1], &temp, sizeof(temp));
+					floatarrbuffer[i-1] = u[rownum][i];
 				}
+				write(fdpipes[2*(temppipe)][1], floatarrbuffer, (sizeof(float))* (N-2));
 				// printf("%d sent row %d to down neighbours\n",tid,rownum);
 			}
 			//send diff to master
@@ -234,10 +284,10 @@ int main(int argc, char *argv[])
 						end = 1 + (tid+1)*((N-2)/P) -1;
 					}
 					for(i=start;i<=end;i++){
+						read(fdmasterpipes[2*tid+1][0],floatarrbuffer,(sizeof(float))* (N-2));
 						for(j=1;j<N-1;j++){
 							float temp;
-							read(fdmasterpipes[2*tid+1][0],&temp,sizeof(diff));
-							u[i][j]=temp;
+							u[i][j]=floatarrbuffer[j-1];
 						}
 					}
 				}
@@ -260,6 +310,11 @@ int main(int argc, char *argv[])
 			printf("%d ",((int)u[i][j]));
 		printf("\n");
 	}
+	// for(i =0; i <N; i++){
+	// 	for(j = 0; j<N; j++)
+	// 		printf("%.6f ",(u[i][j]));
+	// 	printf("\n");
+	// }
 	exit(0);
 
 }
