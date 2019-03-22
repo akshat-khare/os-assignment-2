@@ -47,6 +47,7 @@ int main(int argc, char *argv[])
     }
     //-1 in request queue means absence 1 means presence
     int requestqueue[P];
+    int topper;
     for(i=0;i<P;i++){
         requestqueue[i]=-1;
     }
@@ -149,7 +150,7 @@ int main(int argc, char *argv[])
                     break;
                 case RELEASE:
                     sender = (int) (messagebuffer/10);
-                    int topper=-1;
+                    topper=-1;
                     for(i=P-1;i>=0;i--){
                         if(requestqueue[i]==-1){
                             continue;
@@ -189,7 +190,7 @@ int main(int argc, char *argv[])
                     break;
                 case YIELD:
                     sender = (int) (messagebuffer/10);
-                    int topper=-1;
+                    topper=-1;
                     for(i=P-1;i>=0;i--){
                         if(requestqueue[i]==-1){
                             continue;
