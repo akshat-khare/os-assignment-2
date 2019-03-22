@@ -7,9 +7,9 @@
 // higher thread has higher priority
 #define P 4
 #define Psq 2
-#define P1 2
-#define P2 1
-#define P3 1
+#define P1 0
+#define P2 4
+#define P3 0
 #define REQUEST 1
 #define REPLY 2
 #define RELEASE 3
@@ -17,6 +17,7 @@
 #define INQUIRE 5
 #define FAILED 6
 #define YIELD 7
+#define KILLCHILD 8
 float fabsm(float a){
 	if(a<0)
 	return -1*a;
@@ -25,6 +26,7 @@ return a;
 int main(int argc, char *argv[])
 {
     int i,j;
+    int numrow,numcol;
     //every pipe is incoming
     int ** fdpipes = (int**)malloc(sizeof(int*)*(P));
     float messagebuffer;
@@ -35,7 +37,18 @@ int main(int argc, char *argv[])
 	for(i=0;i<P;i++){
 		if (pipe(fdpipes[i])==-1) 
 		{ 
-			fprintf(stderr, "Pipe Failed" ); 
+			fprintf(stderr, "Pipe Failed\n" ); 
+			return 1; 
+    	} 
+	}
+    int ** fdmasterpipes = (int**)malloc(sizeof(int*)*(P)*2);
+    for(i=0;i<2*P;i++){
+		fdmasterpipes[i] = (int *)malloc(sizeof(int)*2);
+	}
+	for(i=0;i<2*P;i++){
+		if (pipe(fdmasterpipes[i])==-1) 
+		{ 
+			fprintf(stderr, "Pipe Failed\n" ); 
 			return 1; 
     	} 
 	}
@@ -62,14 +75,22 @@ int main(int argc, char *argv[])
     //-1 grantgiven to means grant given to none
     int grantgivento=-1;
     int tid;
+    int targettid;
     int masterpid = getpid();
     int childpid;
     int childpidarr[P];
     int ptype;
+    printf("Grid is\n");
+    for(i=0;i<Psq;i++){
+        for(j=0;j<Psq;j++){
+            printf("%d ",gridhelper[i][j]);
+        }
+        printf("\n");
+    }
     for(i=0;i<P;i++){
         childpid=fork();
         if(childpid<0){
-            printf("Fork failed");
+            printf("Fork failed\n");
         }else if(childpid>0){
             childpidarr[i]=childpid;
         }else{
@@ -85,28 +106,52 @@ int main(int argc, char *argv[])
         }
     }
     if(childpid==0){
+        printf("%d child starting of type %d\n",tid,ptype);
         if(ptype!=1){
             // depending on ptype 2 or 3 i either sleep or not after acquring lock
             //acquire the lock
             messagebuffer = 1.0*REQUEST + 10.0*tid;
-            int numrow = tid/Psq;
-            int numcol = tid%Psq;
+            numrow = tid/Psq;
+            numcol = tid%Psq;
+            printf("numrow is %d numcol is %d\n",numrow,numcol);
             for(i=0;i<Psq;i++){
-                if(i==tid){
+                if(i==numrow){
                     continue;
                 }
-                // if(i>tid){
-                //     write(fdpipes[2 * (gridhelper[i][tid])][1],&messagebuffer,sizeof(float));
-                //     write(fdpipes[2 * (gridhelper[tid][i])][1],&messagebuffer,sizeof(float));
-
-                // }else{
-                //     write(fdpipes[(2 * (gridhelper[i][tid]))+1][1],&messagebuffer,sizeof(float));
-                //     write(fdpipes[(2 * (gridhelper[tid][i]))+1][1],&messagebuffer,sizeof(float));
+                messagebuffer = 1.0*REQUEST + 10.0*tid;
+                // printf("Grid is\n");
+                // for(i=0;i<Psq;i++){
+                //     for(j=0;j<Psq;j++){
+                //         printf("%d ",gridhelper[i][j]);
+                //     }
+                //     printf("\n");
                 // }
-                write(fdpipes[(gridhelper[i][numcol])][1],&messagebuffer,sizeof(float));
-                write(fdpipes[(gridhelper[numrow][i])][1],&messagebuffer,sizeof(float));
+                printf("i is %d numcol is %d\n",i,numcol);
+                targettid = gridhelper[i][numcol];
+                write(fdpipes[targettid][1],&messagebuffer,sizeof(float));
+                printf("%d has sent request signals to %d\n",tid,targettid);
+                
             }
+            for(i=0;i<Psq;i++){
+                if(i==numcol){
+                    continue;
+                }
+                messagebuffer = 1.0*REQUEST + 10.0*tid;
+                // printf("Grid is\n");
+                // for(i=0;i<Psq;i++){
+                //     for(j=0;j<Psq;j++){
+                //         printf("%d ",gridhelper[i][j]);
+                //     }
+                //     printf("\n");
+                // }
+                targettid = gridhelper[numrow][i];
+                write(fdpipes[targettid][1],&messagebuffer,sizeof(float));
+                printf("%d has sent request signals to %d\n",tid,targettid);
+            }
+            printf("This must be print once for %d once\n",tid);
+            messagebuffer = 1.0*REQUEST + 10.0*tid;
             write(fdpipes[tid][1],&messagebuffer,sizeof(float));
+            printf("%d has sent request signals to %d\n",tid,tid);
             //sent the request to acquire lock
 
         }
@@ -115,110 +160,111 @@ int main(int argc, char *argv[])
         for(;;){
             read(fdpipes[tid][0],&messagebuffer,sizeof(float));
             int typemessage = ((int) messagebuffer)%10;
-            switch (typemessage)
-            {
-                case REQUEST:
-                    sender = (int) (messagebuffer/10);
-                    if(grantlock==1){
-                        //I have the lock I can grant the lock
-                        grantlock=-1;
-                        messagebuffer=1.0*GRANT + 10.0*tid;
-                        grantgivento=sender;
-                        requestqueue[sender]=1;
+            printf("%d read message of type %d\n",tid,typemessage);
+            if(typemessage==REQUEST){
+                sender = (int) (messagebuffer/10);
+                if(grantlock==1){
+                    //I have the lock I can grant the lock
+                    grantlock=-1;
+                    messagebuffer=1.0*GRANT + 10.0*tid;
+                    grantgivento=sender;
+                    requestqueue[sender]=1;
+                    write(fdpipes[sender][1],&messagebuffer,sizeof(float));
+
+                }else{
+                    //if i dont have the lock
+                    //queue the sender
+                    requestqueue[sender]=1;
+                    //priority based case now
+                    if(grantgivento>=sender){
+                        //send failed
+                        messagebuffer = 1.0*FAILED + 10.0*tid;
                         write(fdpipes[sender][1],&messagebuffer,sizeof(float));
 
+                    }else if(grantgivento<sender)
+                    {
+                        //inquire the grantgiven
+                        messagebuffer = 1.0*INQUIRE + 10.0*tid;
+                        write(fdpipes[grantgivento][1],&messagebuffer,sizeof(float));
                     }else{
-                        //if i dont have the lock
-                        //queue the sender
-                        requestqueue[sender]=1;
-                        //priority based case now
-                        if(grantgivento>=sender){
-                            //send failed
-                            messagebuffer = 1.0*FAILED + 10.0*tid;
-                            write(fdpipes[sender][1],&messagebuffer,sizeof(float));
+                        printf("can't happen\n");
+                    }
+                    
+                }
+            }else if(typemessage==RELEASE){
+                sender = (int) (messagebuffer/10);
+                topper=-1;
+                requestqueue[sender]=-1;
+                for(i=P-1;i>=0;i--){
+                    if(requestqueue[i]==-1){
+                        continue;
+                    }else if(requestqueue[i]==1){
+                        topper=i;
+                        break;
+                    }
+                }
+                printf("topper is %d\n",topper);
+                if(topper==-1){
+                    // printf("fishy behaviour in release\n");
+                    grantgivento=-1;
+                    grantlock=1;
+                }else{
 
-                        }else if(grantgivento<sender)
-                        {
-                            //inquire the grantgiven
-                            messagebuffer = 1.0*INQUIRE + 10.0*tid;
-                            write(fdpipes[grantgivento][1],&messagebuffer,sizeof(float));
-                        }else{
-                            printf("can't happen");
-                        }
-                        
-                    }
-                    break;
-                case RELEASE:
-                    sender = (int) (messagebuffer/10);
-                    topper=-1;
-                    for(i=P-1;i>=0;i--){
-                        if(requestqueue[i]==-1){
-                            continue;
-                        }else if(requestqueue[i]==1){
-                            topper=i;
-                            break;
-                        }
-                    }
-                    if(topper==-1){
-                        printf("fishy behaviour in release");
-                    }
-                    grantgivento=topper;
-                    grantlock = -1;
-                    requestqueue[sender]=-1;
-                    messagebuffer=1.0*GRANT+10.0*tid;
-                    write(fdpipes[topper][1],&messagebuffer,sizeof(float));
-                    break;
-                case GRANT:
-                    sender = (int) (messagebuffer/10);
-                    grantsecuredarr[sender]=1;
-                    numgrantssecured+=1;
-                    break;
-                case INQUIRE:
-                    if(numfailedreq>0){
-                        // I should send yield
-                        sender = (int) (messagebuffer/10);
-                        numgrantssecured-=1;
-                        grantsecuredarr[sender] = -1;
-                        messagebuffer = 1.0*YIELD + 10.0*tid;
-                        write(fdpipes[sender][1],&messagebuffer, sizeof(float));
-                    }
-                    break;
-                case FAILED:
-                    sender = (int) (messagebuffer/10);
-                    numfailedreq+=1;
-                    grantsecuredarr[sender] = 0;
-                    break;
-                case YIELD:
-                    sender = (int) (messagebuffer/10);
-                    topper=-1;
-                    for(i=P-1;i>=0;i--){
-                        if(requestqueue[i]==-1){
-                            continue;
-                        }else if(requestqueue[i]==1){
-                            topper=i;
-                            break;
-                        }
-                    }
-                    if(topper==-1){
-                        printf("fishy behaviour in release");
-                    }
                     grantgivento=topper;
                     grantlock = -1;
                     messagebuffer=1.0*GRANT+10.0*tid;
-                    requestqueue[sender] = 1;
                     write(fdpipes[topper][1],&messagebuffer,sizeof(float));
+                }
+            }else if(typemessage==GRANT){
+                sender = (int) (messagebuffer/10);
+                grantsecuredarr[sender]=1;
+                numgrantssecured+=1;
+            }else if(typemessage==INQUIRE){
+                if(numfailedreq>0){
+                    // I should send yield
+                    sender = (int) (messagebuffer/10);
+                    numgrantssecured-=1;
+                    grantsecuredarr[sender] = -1;
+                    messagebuffer = 1.0*YIELD + 10.0*tid;
+                    write(fdpipes[sender][1],&messagebuffer, sizeof(float));
+                }
+            }else if(typemessage==FAILED){
+                sender = (int) (messagebuffer/10);
+                numfailedreq+=1;
+                grantsecuredarr[sender] = 0;
+            }else if(typemessage==YIELD){
+                sender = (int) (messagebuffer/10);
+                topper=-1;
+                for(i=P-1;i>=0;i--){
+                    if(requestqueue[i]==-1){
+                        continue;
+                    }else if(requestqueue[i]==1){
+                        topper=i;
+                        break;
+                    }
+                }
+                if(topper==-1){
+                    printf("fishy behaviour in release\n");
+                }
+                grantgivento=topper;
+                grantlock = -1;
+                messagebuffer=1.0*GRANT+10.0*tid;
+                requestqueue[sender] = 1;
+                write(fdpipes[topper][1],&messagebuffer,sizeof(float));
 
-                    break;
-            
-                default:
-                    printf("unknown message pls help");
-                    break;
+            }else if(typemessage==KILLCHILD){
+                //kill myself
+                exit(0);
+            }else{
+                printf("unknown message pls help\n");
             }
+
+
             //check grants
             if(numgrantssecured=2*Psq-1){
                 //got all grants 
-                int numrow = tid/Psq;
-                int numcol = tid%Psq;
+                numrow = tid/Psq;
+                numcol = tid%Psq;
                 int mybool=1;//true
                 for(i=0;i<Psq;i++){
                     if(grantsecuredarr[gridhelper[i][numcol]]!=1){
@@ -232,29 +278,41 @@ int main(int argc, char *argv[])
                 }
                 if(mybool==1){
                     //I have all the grants
-                    printf("%d acquired the lock\n",tid);
+                    printf("%d acquired the lock -------------------------------\n",tid);
                     if(ptype==2){
                         sleep(2);
                     }
                     if(ptype==1){
                         printf("fishy yes it is as type 1 has lock lol\n");
                     }
+                    //release the lock
                     numgrantssecured=0;
                     for(i=0;i<P;i++){
                         grantsecuredarr[i]=-1;
                     }
                     for(i=0;i<Psq;i++){
-                        if(i==tid){
+                        if(i==numrow){
                             continue;
                         }
                         messagebuffer=1.0*RELEASE+10.0*tid;
                         write(fdpipes[gridhelper[i][numcol]][1], &messagebuffer,sizeof(float));
+                        printf("%d has sent release signals to %d\n",tid,gridhelper[i][numcol]);
+                    }
+                    for(i=0;i<Psq;i++){
+                        if(i==numcol){
+                            continue;
+                        }
+                        messagebuffer=1.0*RELEASE+10.0*tid;
                         write(fdpipes[gridhelper[numrow][i]][1], &messagebuffer,sizeof(float));
+                        printf("%d has sent release signals to %d\n",tid,gridhelper[numrow][i]);
 
                     }
                     messagebuffer=1.0*RELEASE+10.0*tid;
                     write(fdpipes[tid][1],&messagebuffer, sizeof(messagebuffer));
-                    printf("%d released the lock\n",tid);
+                    printf("%d has sent release signals to %d\n",tid,tid);
+                    printf("%d released the lock -----------------------\n",tid);
+                    messagebuffer=-1.0;
+                    write(fdmasterpipes[2*tid+1][1], &messagebuffer,sizeof(messagebuffer));
                 }
 
             }
@@ -262,7 +320,22 @@ int main(int argc, char *argv[])
 
         
     }else{
-
+        int count=0;
+        for(i=0;i<P;i++){
+            if(i<P1){
+                continue;
+            }
+            read(fdmasterpipes[2*i+1][0],&messagebuffer,sizeof(messagebuffer));
+        }
+        printf("master declared all locks done and dusted\n");
+        for(i=0;i<P;i++){
+            messagebuffer=1.0*KILLCHILD;
+            write(fdpipes[i][1],&messagebuffer,sizeof(messagebuffer));
+        }
+        printf("master sent all kill signals\n");
+        for(i=0;i<P;i++){
+            wait(NULL);
+        }
     }
 
 
